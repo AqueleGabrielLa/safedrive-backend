@@ -1,13 +1,11 @@
-# Sample Hardhat Project
+# Backend da aplicação de seguros na blockchain
 
-This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a Hardhat Ignition module that deploys that contract.
+`npx hardhat localhost` - inicia a blockchain local
 
-Try running some of the following tasks:
+em outro terminal:
+`npx hardhat run ignition/modules/deploy.js --network localhost` - dá deploy no contrato na blockchain
+`node app/server.js` - inicia o servidor local, conectando a rota localhost:3000 a blockchain
 
-```shell
-npx hardhat help
-npx hardhat test
-REPORT_GAS=true npx hardhat test
-npx hardhat node
-npx hardhat ignition deploy ./ignition/modules/Lock.js
-```
+http://localhost:3000/api/
+
+URL principal das rotas. rotas estão no arquivo no app/routes/seguroRoutes.js
