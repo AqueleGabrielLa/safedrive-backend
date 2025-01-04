@@ -1,27 +1,12 @@
-//cadastrarSegurado, consultarSegurado, saldoContrato
-// criarApolice, pagarPremio registrarSinistro
-
 // processarEPagarSinistro 
-// consultarApoliceBase consultarApoliceStatus 
 // apoliceEstaPaga retirarFundos
+
 const { ethers } = require('ethers');
 const contract = require('../server.js');
 const { format } = require('date-fns');
 
-const helper = {
-    async error(error){
-        console.error('Erro ao cadastrar segurado:', error);
-            res.status(500).json({
-            error: 'Erro ao cadastrar segurado',
-            details: error.message
-        });
-    }
-}
-
 module.exports = {
     async cadastrarSegurado(req, res) {
-        console.log("Recebendo requisição JSON-RPC...");
-    
         const { jsonrpc, method, params, id } = req.body;
     
         // Validar se o formato JSON-RPC está correto
@@ -91,9 +76,15 @@ module.exports = {
                     error: 'Valor de prêmio, cobertura e prazo devem ser numéricos.'
                 });
             }
+
+            if (valorPremio <= 0 || valorCobertura <= 0 || prazo <= 0) {
+                return res.status(400).json({
+                    error: 'Os valores de prêmio, cobertura e prazo devem ser positivos.'
+                });
+            }
             
-            const valorPremioWei = ethers.utils.parseEther(valorPremio.toString());
-            const valorCoberturaWei = ethers.utils.parseEther(valorCobertura.toString());
+            const valorPremioWei = ethers.parseEther(valorPremio.toString()).toString();
+            const valorCoberturaWei = ethers.parseEther(valorCobertura.toString()).toString();
 
             const tx = await contract.criarApolice(
                 endereco,
@@ -103,14 +94,13 @@ module.exports = {
                 prazo
             );
             const receipt = await tx.wait();
-            // const idApolice = receipt.logs[0].args[0];
-            // console.log(`Apolice criada com ID: ${idApolice}`);
-            console.log(receipt.logs);
+            const idApolice = receipt.logs[0].args[0].toString();
             
             res.json({
                 success: true,
                 transactionHash: tx.hash,
-                blockNumber: receipt.blockNumber
+                blockNumber: receipt.blockNumber,
+                idApolice: idApolice
             });
         } catch (error) {
             console.error(error);
@@ -124,41 +114,105 @@ module.exports = {
             const { idApolice } = req.params;
             const { valor } = req.body;
 
-            const tx = await contract.pagarPremio(idApolice, {
-                value: parseEther(valor.toString())
-            });
+            if (isNaN(valor) || valor <= 0) {
+                return res.status(400).json({ error: 'Valor do prêmio inválido.' });
+            }
+
+            const valorWei = ethers.parseEther(valor.toString());
+
+            const tx = await contract.pagarPremio(idApolice, { value: valorWei });
             const receipt = await tx.wait();
+
+            const log = receipt.logs[0];
+    
+            const [ valorPago ] = log.args[1].toString();
 
             res.json({
                 success: true,
                 transactionHash: tx.hash,
-                blockNumber: receipt.blockNumber
+                blockNumber: receipt.blockNumber,
+                idApolice: idApolice,
+                valorPago: valorPago
             });
         } catch (error) {
-            helper.error(error);
+            console.error(error);
+            res.status(500).json({ success: false, error: error.message });
         }
     },
 
     async registrarSinistro(req, res) {
         try {
             const { idApolice } = req.params;
-            const {descricao, valor} = req.body;
-
-            const tx = await contract.registrarSinistro(idApolice, descricao, valor);
+            const { descricao, valorPedido } = req.body;
+    
+            if (isNaN(valorPedido) || valorPedido <= 0) {
+                return res.status(400).json({ error: 'Valor do pedido inválido.' });
+            }
+    
+            const tx = await contract.registrarSinistro(idApolice, descricao, valorPedido);
             const receipt = await tx.wait();
 
+            const log = receipt.logs[0];
+    
+            const [idSinistro, idApoliceEvento] = log.args;
+    
             res.json({
                 success: true,
                 transactionHash: tx.hash,
-                blockNumber: receipt.blockNumber
+                blockNumber: receipt.blockNumber,
+                idSinistro: idSinistro.toString(),
+                idApolice: idApoliceEvento.toString(), 
+                descricao: descricao,
+                valorPedido: valorPedido
             });
         } catch (error) {
-            helper.error(error);
+            console.error(error);
+            res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    async processarEPagarSinistro(req, res) {
+        try {
+            const { idSinistro } = req.params;
+            const { aprovado } = req.body;
+    
+            if (typeof aprovado !== 'boolean') {
+                return res.status(400).json({ error: 'Parâmetro "aprovado" deve ser um booleano.' });
+            }
+
+            const saldoContrato = await contract.saldoContrato();
+            const sinistro = await contract.sinistros(idSinistro);
+            if (aprovado && saldoContrato < sinistro.valorPedido) {
+                return res.status(400).json({ error: 'Saldo insuficiente no contrato para pagar o sinistro.' });
+            }
+
+            const tx = await contract.processarEPagarSinistro(idSinistro, aprovado);
+
+            const receipt = await tx.wait();
+    
+            const log = receipt.logs[0];
+    
+            const [idSinistroEvento, aprovadoEvento] = log.args;
+
+            const idSinistroStr = idSinistroEvento.toString();
+            const aprovadoStr = aprovadoEvento ? true : false;
+    
+            res.json({
+                success: true,
+                transactionHash: tx.hash,
+                blockNumber: receipt.blockNumber,
+                idSinistro: idSinistroStr,
+                aprovado: aprovadoStr
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ success: false, error: error.message });
         }
     },
 
     async consultarSegurado(req, res) {
         try {
+            
             const endereco = req.params.endereco;
             
             const segurado = await contract.consultarSegurado(endereco);
@@ -171,6 +225,55 @@ module.exports = {
             });
         } catch (error) {
             res.status(500).json({ error: error.message });
+        }
+    },
+
+    async consultarApoliceBase(req, res) {
+        try {
+            const { idApolice } = req.params;
+    
+            const apolice = await contract.consultarApoliceBase(idApolice);
+    
+            const [segurado, tipoSeguro, valorPremio, valorCobertura] = apolice;
+    
+            const valorPremioFormatado = ethers.formatUnits(valorPremio, "wei");
+            const valorCoberturaFormatado = ethers.formatUnits(valorCobertura, "wei");
+
+            res.json({
+                success: true,
+                segurado: segurado,
+                tipoSeguro: tipoSeguro,
+                valorPremio: valorPremioFormatado,
+                valorCobertura: valorCoberturaFormatado
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    async consultarApoliceStatus(req, res) {
+        try {
+            const { idApolice } = req.params;
+    
+            const status = await contract.consultarApoliceStatus(idApolice);
+    
+            const [dataInicio, dataFim, ativa, paga] = status;
+    
+            const dataInicioFormatada = new Date(Number(dataInicio) * 1000).toISOString();
+            const dataFimFormatada = new Date(Number(dataFim) * 1000).toISOString();
+    
+            res.json({
+                success: true,
+                idApolice,
+                dataInicio: dataInicioFormatada,
+                dataFim: dataFimFormatada,
+                ativa,
+                paga
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ success: false, error: error.message });
         }
     },
 

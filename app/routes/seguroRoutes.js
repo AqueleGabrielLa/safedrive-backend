@@ -9,7 +9,10 @@ router.post('/segurados/:idApolice/sinistro', seguroController.registrarSinistro
 
 // Rotas para apolices
 router.post('/apolices', seguroController.criarApolice);
+router.get('/apolice/:idApolice', seguroController.consultarApoliceBase);
+router.get('/apolice-status/:idApolice', seguroController.consultarApoliceStatus);
 router.post('/apolices/:idApolice/pagamento', seguroController.pagarPremio);
+router.post('/sinistro/:idSinistro/processar', seguroController.processarEPagarSinistro);
 
 router.get('/getBalance', seguroController.saldoContrato);
 
