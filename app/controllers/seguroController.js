@@ -1,8 +1,5 @@
-// processarEPagarSinistro 
-// apoliceEstaPaga retirarFundos
-
 const { ethers } = require('ethers');
-const contract = require('../server.js');
+const { contract, provider } = require('../server.js');
 const { format } = require('date-fns');
 
 module.exports = {
@@ -60,7 +57,6 @@ module.exports = {
         }
     },
 
-    // Criar nova apólice
     async criarApolice(req, res) {
         try {
             const { endereco, tipo, valorPremio, valorCobertura, prazo } = req.body;
@@ -108,7 +104,6 @@ module.exports = {
         }
     },
 
-    // Realizar pagamento de prêmio
     async pagarPremio(req, res) {
         try {
             const { idApolice } = req.params;
@@ -149,11 +144,18 @@ module.exports = {
                 return res.status(400).json({ error: 'Valor do pedido inválido.' });
             }
     
-            const tx = await contract.registrarSinistro(idApolice, descricao, valorPedido);
-            const receipt = await tx.wait();
-
-            const log = receipt.logs[0];
+            const valorPedidoWei = ethers.parseEther(valorPedido.toString());
+            console.log("Valor do sinistro em wei:", valorPedidoWei.toString());
     
+            const tx = await contract.registrarSinistro(
+                idApolice, 
+                descricao, 
+                valorPedidoWei 
+            );
+    
+            const receipt = await tx.wait();
+    
+            const log = receipt.logs[0];
             const [idSinistro, idApoliceEvento] = log.args;
     
             res.json({
@@ -161,9 +163,10 @@ module.exports = {
                 transactionHash: tx.hash,
                 blockNumber: receipt.blockNumber,
                 idSinistro: idSinistro.toString(),
-                idApolice: idApoliceEvento.toString(), 
+                idApolice: idApoliceEvento.toString(),
                 descricao: descricao,
-                valorPedido: valorPedido
+                valorPedido: valorPedido,
+                valorPedidoWei: valorPedidoWei.toString()
             });
         } catch (error) {
             console.error(error);
@@ -179,34 +182,44 @@ module.exports = {
             if (typeof aprovado !== 'boolean') {
                 return res.status(400).json({ error: 'Parâmetro "aprovado" deve ser um booleano.' });
             }
-
-            const saldoContrato = await contract.saldoContrato();
+    
             const sinistro = await contract.sinistros(idSinistro);
-            if (aprovado && saldoContrato < sinistro.valorPedido) {
+            const valorPedido = sinistro.valorPedido;
+
+            const saldoContratoAntes = await provider.getBalance(await contract.getAddress());
+    
+            if (aprovado && saldoContratoAntes < valorPedido) {
                 return res.status(400).json({ error: 'Saldo insuficiente no contrato para pagar o sinistro.' });
             }
-
+    
             const tx = await contract.processarEPagarSinistro(idSinistro, aprovado);
-
             const receipt = await tx.wait();
+            await provider.send("evm_mine", []);
     
-            const log = receipt.logs[0];
-    
-            const [idSinistroEvento, aprovadoEvento] = log.args;
-
-            const idSinistroStr = idSinistroEvento.toString();
-            const aprovadoStr = aprovadoEvento ? true : false;
-    
-            res.json({
+            let response = {
                 success: true,
                 transactionHash: tx.hash,
                 blockNumber: receipt.blockNumber,
-                idSinistro: idSinistroStr,
-                aprovado: aprovadoStr
-            });
+                idSinistro: idSinistro,
+                aprovado: aprovado,
+            };
+    
+            if (aprovado) {
+                response.valorPago = ethers.formatEther(valorPedido);
+            }
+    
+            if (!receipt.status) {
+                throw new Error('Transação falhou');
+            }
+    
+            res.json(response);
         } catch (error) {
-            console.error(error);
-            res.status(500).json({ success: false, error: error.message });
+            console.error('Erro ao processar sinistro:', error);
+            res.status(500).json({ 
+                success: false, 
+                error: error.message,
+                details: 'Falha ao processar ou pagar o sinistro'
+            });
         }
     },
 

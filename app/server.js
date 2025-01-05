@@ -45,7 +45,7 @@ const contractAddress = process.env.CONTRACT_ADDRESS;
 
 // instância do contrato
 const contract = new ethers.Contract(contractAddress, contractABI, wallet);
-module.exports = contract;
+module.exports = { contract, provider };
 
 // rotas definidas no arquivo de rotas
 const router = require('./routes/seguroRoutes.js');

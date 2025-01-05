@@ -163,19 +163,26 @@ contract SeguroDidaticoCompleto {
 
     function processarEPagarSinistro(uint256 _idSinistro, bool _aprovado) external apenasSeguradora {
         Sinistro storage sinistro = sinistros[_idSinistro];
-        
+
         require(!sinistro.processado, "Sinistro ja foi processado");
         require(premiosPagos[sinistro.idApolice], "Premio do seguro nao foi pago");
-        
-        sinistro.aprovado = _aprovado;
-        sinistro.processado = true;
-        
-        emit SinistroProcessado(_idSinistro, _aprovado);
-        
+
+        address payable seguradoAddress = payable(apolices[sinistro.idApolice].segurado);
+        require(seguradoAddress != address(0), "Endereco do segurado invalido");
+
         if (_aprovado) {
             require(address(this).balance >= sinistro.valorPedido, "Saldo insuficiente");
-            address payable seguradoAddress = payable(apolices[sinistro.idApolice].segurado);
-            seguradoAddress.transfer(sinistro.valorPedido);
+        }
+
+        sinistro.aprovado = _aprovado;
+        sinistro.processado = true;
+
+        emit SinistroProcessado(_idSinistro, _aprovado);
+
+        if (_aprovado) {
+            (bool success, ) = seguradoAddress.call{value: sinistro.valorPedido}("");
+            require(success, "Falha na transferencia do pagamento");
+
             emit IndenizacaoPaga(_idSinistro, sinistro.valorPedido);
         }
     }
@@ -239,4 +246,9 @@ contract SeguroDidaticoCompleto {
         require(address(this).balance >= _valor, "Saldo insuficiente");
         payable(seguradora).transfer(_valor);
     }
+
+    receive() external payable {}
+
+    fallback() external payable {}
+
 }
