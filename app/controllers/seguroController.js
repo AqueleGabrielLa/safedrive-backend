@@ -4,55 +4,33 @@ const { format } = require('date-fns');
 
 module.exports = {
     async cadastrarSegurado(req, res) {
-        const { jsonrpc, method, params, id } = req.body;
-    
-        // Validar se o formato JSON-RPC está correto
-        if (jsonrpc !== '2.0' || method !== 'cadastrarSegurado' || !Array.isArray(params)) {
-            return res.status(400).json({
-                jsonrpc: '2.0',
-                error: {
-                    code: -32600,
-                    message: 'Invalid Request',
-                },
-                id: id || null,
-            });
-        }
-    
         try {
-            const [endereco, nome, documento] = params;
+            const { endereco, nome, documento } = req.body;
+    
             if (!endereco || !nome || !documento) {
                 return res.status(400).json({
-                    jsonrpc: '2.0',
-                    error: {
-                        code: -32602,
-                        message: 'Dados incompletos. Forneça endereço, nome e documento.',
-                    },
-                    id,
+                    success: false,
+                    message: 'Dados incompletos. Forneça endereço, nome e documento.'
                 });
             }
-            
+    
             const tx = await contract.cadastrarSegurado(endereco, nome, documento);
             const receipt = await tx.wait();
     
-            return res.json({
-                jsonrpc: '2.0',
-                result: {
-                    success: true,
+            return res.status(201).json({
+                success: true,
+                data: {
                     transactionHash: tx.hash,
-                    blockNumber: receipt.blockNumber,
-                },
-                id,
+                    blockNumber: receipt.blockNumber
+                }
             });
+    
         } catch (error) {
-            console.error("Erro no método cadastrarSegurado:", error);
+            console.error("Erro ao cadastrar segurado:", error);
             return res.status(500).json({
-                jsonrpc: '2.0',
-                error: {
-                    code: -32603,
-                    message: 'Erro interno do servidor.',
-                    data: error.message,
-                },
-                id,
+                success: false,
+                message: 'Erro interno do servidor',
+                error: error.message
             });
         }
     },
